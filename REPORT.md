@@ -12,8 +12,8 @@
 - **Fine-tuning worked:** DistilBERT macro-F1 **0.296 → 0.400** on the held-out
   test split, a **+35%** relative gain over the untrained classification head.
 - **The 66M fine-tuned model beat a 20B prompted LLM on every operational axis** —
-  11× faster, zero marginal cost, no network dependency, no unparsable outputs —
-  at quality the experiment could not distinguish.
+  21× faster, zero marginal cost, no network dependency, no unparsable outputs —
+  at quality a 300-row three-arm comparison could not distinguish from it.
 - **Seven LLMOps metrics**, six served live from a structured request log, all
   regenerable with one command.
 - **Two negative results are reported rather than hidden** (§6, §9), because a
@@ -336,94 +336,107 @@ Which decomposes cleanly:
 - **B − C = the context effect** — what extra document access is worth.
 - **C − A = the capability effect** — what extra parameters are worth at equal input.
 
-**Method:** stratified 90-row sample from the held-out test split (30 per class,
+**Method:** stratified 300-row sample from the held-out test split (100 per class,
 seed 42), identical inputs across arms, `scripts/evaluate.py`. An unparsable LLM
 answer is scored as *wrong*, not dropped — discarding it would inflate the
 prompted arms.
 
-### Results (n = 90, balanced 30 / 30 / 30)
+### Results (n = 300, balanced 100 / 100 / 100, seed 42)
 
-> **Why arm A scores 0.3569 here but 0.4004 in §5.** They are different test
+All three arms are scored on the same balanced 300-row subsample of the test
+split. Arm C prepares its 512 tokens with the strategy recorded in the shipped
+checkpoint's `selection_strategy.txt` (`head`), so it reads the *same* tokens as
+Arm A — the two arms differ only in which model reads them.
+
+> **Why arm A scores 0.3581 here but 0.4004 in §5.** They are different test
 > sets, not different models. §5 reports the full 1,759-row test split, whose
 > natural class imbalance the model can partly ride. This section uses a balanced
-> 90-row subsample so all three arms face the same class distribution — which is
-> harder, because the majority class no longer carries the score. The same model
-> is evaluated in both; only the sample differs.
+> subsample so all three arms face the same class distribution — which is harder,
+> because the majority class no longer carries the score. The same checkpoint is
+> evaluated in both; only the sample differs.
 
 | | A: fine-tuned | B: prompted, full | C: prompted, matched |
 |---|---|---|---|
-| **Macro-F1** | **0.3569** | 0.3433 | 0.3013 |
-| Accuracy | 0.4000 | 0.3778 | 0.3333 |
-| F1 — No Fit | 0.5060 | 0.4615 | 0.4176 |
-| F1 — Potential Fit | 0.1579 | 0.3462 | 0.2642 |
-| F1 — Good Fit | 0.4068 | 0.2222 | 0.2222 |
-| Mean latency | **2.02 s** | 9.51 s | 9.08 s |
-| Total tokens | — | 141,969 | 63,910 |
+| **Macro-F1** | 0.3581 | **0.3644** | 0.3106 |
+| Accuracy | 0.3900 | **0.4167** | 0.3733 |
+| F1 — No Fit | 0.4848 | **0.5346** | 0.4922 |
+| F1 — Potential Fit | 0.1955 | **0.3399** | 0.3190 |
+| F1 — Good Fit | **0.3941** | 0.2188 | 0.1207 |
+| Mean latency | **0.67 s** | 13.95 s | 9.93 s |
+| Total tokens | — | 473,185 | 212,745 |
 | Unparsable outputs | 0 (closed label set) | 1 | 0 |
-| Cost per 1,000 resumes | **$0** (local CPU) | ≈ $0.16 | ≈ $0.07 |
+| Cost per 1,000 resumes | **$0** (local CPU) | ≈ $0.158 | ≈ $0.071 |
 
-**The headline comparison is A vs B, and it is clean.** Given the whole document —
-the LLM's best case — prompted `gpt-oss-20b` scored **0.3433** against the
-fine-tuned model's **0.3569**. Roughly 300× the parameters did not buy accuracy
-on this task.
+**This result reversed when the sample grew.** An earlier n=90 run had arm A
+ahead on macro-F1 (0.3569 vs 0.3433) and that was written up as "the 20B model
+did not beat the 66M one". At n=300 the ordering flips: prompted `gpt-oss-20b`
+reads 0.3644 against the fine-tuned model's 0.3581. The honest reading is not
+that one conclusion replaced another — it is that **the sample was never large
+enough to support either ordering**, and the reversal is the evidence for that.
+The n=300 numbers are reported here because they are the better-powered run and
+because Arm C is un-confounded; the earlier ones are superseded.
 
-The decomposition below was the original design, splitting that result into a
-*context* and a *capability* component. Arm C turned out to be confounded, so
-both components are reported as indicative only, not as findings:
+Decomposing the B-vs-A gap, now that Arm C is genuinely matched:
 
-- Context effect (B − C) = +0.042 — giving the LLM the whole document rather
-  than a 512-token budget appears to be worth about 4 macro-F1 points.
-- Capability effect (C − A) = −0.056 — on a roughly matched budget the 20B model
-  still did not come out ahead.
+- **Context effect (B − C) = +0.054.** Giving the LLM the whole document rather
+  than the small model's 512-token budget is worth about 5 macro-F1 points. This
+  is the largest single effect in the table.
+- **Capability effect (C − A) = −0.048.** Reading the *same* 512 tokens, the
+  20-billion-parameter model scores below the fine-tuned 66-million one.
 
-> ⚠️ **Caveat on this n=90 run.** Arm C selected its 512 tokens with JD-guided
-> selection while Arm A, after the §6 ablation, ships head truncation — so the
-> two arms were not reading the *same* 512 tokens and the capability effect above
-> is confounded with the preparation method. The serving code now reads the
-> shipped checkpoint's `selection_strategy.txt` and prepares Arm C to match, so
-> the confound is fixed in code; the numbers above predate that fix. The context
-> effect (B − C) carries the same caveat. **The headline A-vs-B comparison does
-> not** — neither of those arms uses selection — so the finding that the 20B
-> model failed to beat the 66M one stands on uncontaminated ground.
+Read together: the LLM's slim overall edge comes entirely from being allowed to
+read more of the document, not from being a bigger model. On equal input the
+fine-tuned model is ahead.
 
 **Figure 9** shows the two arms disagreeing on a single resume — the same
 comparison as the table above, at n=1.
 
 ### Reading the result — including what it does not support
 
-The fine-tuned model wins on every operational axis by a wide margin: **4.7×
-faster**, zero marginal cost, no network dependency, no unparsable outputs, and
-a full score distribution across all three classes rather than a bare label.
-(Those scores are not *calibrated* — no reliability curve was measured — but
-having them at all is what makes a confidence threshold possible.) Those
-differences are large
-and not in dispute.
+The fine-tuned model wins on every operational axis by a wide margin: **21×
+faster** (0.67 s vs 13.95 s), zero marginal cost against $0.158 per 1,000
+resumes, no network dependency, no unparsable outputs, and a full score
+distribution across all three classes rather than a bare label. (Those scores are
+not *calibrated* — no reliability curve was measured — but having them at all is
+what makes a confidence threshold possible.) Those differences are large and not
+in dispute.
 
-**The quality differences are not statistically meaningful at this sample size,
-and it would be dishonest to present them as if they were.** On a balanced
-90-row sample, uniform random guessing scores macro-F1 0.331 on average, with a
-95% range of **0.237 – 0.433** across 2,000 simulated runs. All three arms —
-0.357, 0.343, 0.301 — fall inside that interval. The per-class counts are 30, so
-the standard error on any one class's F1 is roughly ±0.09; a gap of 0.014
-between arms A and B is far below the noise floor.
+**The quality differences are not statistically meaningful even at n=300, and it
+would be dishonest to present them as if they were.** On a balanced 300-row
+sample, uniform random guessing scores macro-F1 0.334 on average, with a 95%
+range of **0.280 – 0.386** across 2,000 simulated runs. All three arms — 0.358,
+0.364, 0.311 — fall inside that interval. The 0.006 macro-F1 gap between arms A
+and B is an order of magnitude below the width of that band.
+
+Accuracy tells a slightly better story than macro-F1: against a 0.333 chance
+rate, arm B's 0.4167 sits about 3 standard errors above chance and arm A's 0.3900
+about 2. Both are doing something real; macro-F1 is harsher because every arm
+handles at least one of the three classes badly — arm A collapses on
+*Potential Fit* (F1 0.196), the prompted arms on *Good Fit* (0.219 and 0.121).
+The middle class is the hard one for every approach tried here.
 
 What can be claimed:
 
-- **Supported.** The fine-tuned model is dramatically cheaper and faster, and it
-  is not *worse* — prompting a 20B model does not obviously beat it. Given the
-  cost asymmetry, that alone justifies the fine-tuning.
-- **Supported.** The direction of the context effect is consistent with the
-  token-length measurements in §5: the model reads a third of each pair, and
-  giving the LLM the rest helps it.
-- **Not supported.** "Fine-tuning beats prompting on quality." The gap is inside
-  the noise. Separating a 0.014 difference would need roughly 2,000 labelled
-  rows per arm; at ~9.5 s per LLM call that is about five hours of API time per
-  arm, which did not fit the assignment timeline.
+- **Supported.** The fine-tuned model is dramatically cheaper and faster — 21×
+  and free against $0.158 per 1,000 resumes — and no arm is measurably better at
+  the task. Given that asymmetry, the fine-tuning is justified on cost alone.
+- **Supported.** The context effect is consistent with the token-length
+  measurements in §5: the classifier reads about a third of each pair, and
+  giving the LLM the rest is worth more than the 300× parameter difference is.
+- **Not supported.** "Fine-tuning beats prompting on quality." It does not, at
+  this sample size, and an earlier run that appeared to show it was reversed by
+  collecting more data.
+- **Not supported.** "Prompting beats fine-tuning on quality." The n=300 ordering
+  favours the LLM by 0.006 macro-F1, which is well inside the noise. Separating a
+  gap that small would need on the order of 10,000 labelled rows per arm; at
+  ~14 s per LLM call that is roughly 40 hours of API time per arm, which did not
+  fit the assignment timeline.
 
-The honest one-line conclusion is: **at indistinguishable quality, the 66M model
-costs nothing and answers in 2 seconds, so it is the right choice for this
-deployment — and the experiment's real finding is how little the 300× parameter
-advantage bought.**
+The honest one-line conclusion is: **at quality this experiment cannot
+distinguish, the 66M model costs nothing and answers in under a second, so it is
+the right choice for this deployment — and the experiment's real finding is how
+little the 300× parameter advantage bought, and how easily a small sample can
+appear to settle a question it cannot.**
 
 ---
 
@@ -702,9 +715,15 @@ support each other.
 ## 12. Limitations and future work
 
 - **512-token ceiling.** The model reads about a third of the median
-  resume+JD pair. Hierarchical encoding — encode blocks separately, pool the
-  representations — would remove the ceiling rather than manage it, and is the
-  most promising next step.
+  resume+JD pair. Processing the document in chunks and combining the results
+  would remove the ceiling rather than manage it, and is the most promising next
+  step — §7 measures document access as the largest single effect in the study.
+- **The evaluation is underpowered, and this is demonstrated rather than
+  suspected.** A 90-row comparison put the fine-tuned model ahead of the prompted
+  LLM; growing the same comparison to 300 rows reversed the ordering, and all
+  three arms sit inside the range reachable by random guessing at both sizes.
+  Any quality ranking in §7 should be read as undetermined. Settling it needs a
+  labelled set one to two orders of magnitude larger than the assignment allowed.
 - **Absolute macro-F1 of 0.40 is modest.** It beats both trivial baselines
   decisively, but this is a genuinely hard three-way task where "Potential Fit"
   is a fuzzy boundary between the other two classes, and the dataset's labels
@@ -750,15 +769,16 @@ streamlit run streamlit_app.py       # UI at :8501
 | To regenerate | Run | Produces |
 |---|---|---|
 | §5, §6 fine-tuning and ablation | `finetune_colab.ipynb` — Runtime → T4 GPU → Run all | `models/fit-*/training_report.json` |
-| §7 three-arm comparison | `python scripts/evaluate.py --limit 90 --seed 42` | `logs/eval_report.json` |
+| §7 three-arm comparison | `python scripts/evaluate.py --limit 300 --seed 42` | `logs/eval_report.json` |
 | §8 LLMOps metrics M1–M6 | `python scripts/demo_session.py` (server running) | `logs/metrics_snapshot.json` |
 | §10 screenshots | `python scripts/capture_screenshots.py` (both servers running) | `docs/screenshots/*.png` |
 | Submission document | `python scripts/build_report_docx.py --id <BITS ID> --name "<Name>"` | `REPORT.docx` |
 
 Notes that matter for exact reproduction:
 
-- `--seed 42` fixes the balanced 90-row subsample; a different seed gives a
-  different sample and, at this size, visibly different numbers.
+- `--seed 42` fixes the balanced 300-row subsample; a different seed gives a
+  different sample and, at this size, visibly different numbers — §7 shows an
+  n=90 run whose arm ordering the n=300 run reversed.
 - `evaluate.py` scores whichever checkpoint is in
   `models/finetuned-fit-classifier/` and prepares its input using the strategy
   recorded in that directory's `selection_strategy.txt` (`head`).
