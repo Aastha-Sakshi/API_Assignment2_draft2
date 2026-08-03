@@ -65,12 +65,22 @@ def is_separator(line: str) -> bool:
     return bool(re.fullmatch(r"\|[\s:|-]+\|", line.strip()))
 
 
-def build(md_path: Path, out_path: Path) -> None:
+def build(md_path: Path, out_path: Path, student_id: str = "", name: str = "") -> None:
     doc = Document()
     doc.styles["Normal"].font.name = "Calibri"
     doc.styles["Normal"].font.size = Pt(10.5)
 
-    lines = md_path.read_text(encoding="utf-8").splitlines()
+    source = md_path.read_text(encoding="utf-8")
+
+    # REPORT.md is committed to a public repository, so it carries placeholders
+    # rather than a student's name and ID. They are substituted here, into the
+    # document that actually gets submitted.
+    source = source.replace("{{BITS_ID}}", student_id or "<BITS ID>")
+    source = source.replace("{{NAME}}", name or "<Name>")
+    # Drop HTML comments -- build instructions for the repo, noise in the report.
+    source = re.sub(r"<!--.*?-->>?", "", source, flags=re.DOTALL)
+
+    lines = source.splitlines()
     i, n = 0, len(lines)
     tables = code_blocks = images = 0
     missing = []
@@ -242,9 +252,12 @@ def build(md_path: Path, out_path: Path) -> None:
     for note in tall:
         print(f"  scaled to fit one page: {note}")
 
+    # Scan the substituted text, not the file on disk: the placeholders in
+    # REPORT.md are meant to be there, and warning about ones that were just
+    # filled in trains you to ignore the warning.
     remaining = [
-        ln for ln in md_path.read_text(encoding="utf-8").splitlines()
-        if "<fill>" in ln or "<pending>" in ln
+        ln for ln in source.splitlines()
+        if any(m in ln for m in ("<fill>", "<pending>", "{{BITS_ID}}", "{{NAME}}"))
     ]
     if remaining:
         print(f"\n  {len(remaining)} placeholder(s) still in the document:")
@@ -256,5 +269,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Render REPORT.md to .docx")
     parser.add_argument("--md", default=str(ROOT / "REPORT.md"))
     parser.add_argument("--out", default=str(ROOT / "REPORT.docx"))
+    parser.add_argument("--id", dest="student_id", default="",
+                        help="BITS ID, substituted for {{BITS_ID}}")
+    parser.add_argument("--name", default="", help="student name, substituted for {{NAME}}")
     args = parser.parse_args()
-    build(Path(args.md), Path(args.out))
+    build(Path(args.md), Path(args.out), args.student_id, args.name)

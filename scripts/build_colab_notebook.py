@@ -52,7 +52,7 @@ def embed(magic: str, path: Path):
 # The ablation table. Written with .format() and single-quoted keys so it
 # parses on any Python 3.8+; nested quotes inside f-strings need 3.12.
 ABLATION_CELL = """
-# 5. The ablation table -- this is the report screenshot.
+# The ablation table -- this is the report screenshot.
 import json
 import shutil
 from pathlib import Path
@@ -69,7 +69,7 @@ for name, directory in arms.items():
         print('MISSING {} -- did that training cell fail?'.format(path))
 
 if not reports:
-    raise SystemExit('No training reports found. Re-run cells 5a and 5b.')
+    raise SystemExit('No training reports found. Re-run the two training cells.')
 
 row = '{:<22}{:>10.4f}{:>10.4f}{:>13.4f}'
 print('{:<22}{:>10}{:>10}{:>13}'.format('arm', 'accuracy', 'macro_f1', 'weighted_f1'))
@@ -100,51 +100,80 @@ def build():
     notebook = {
         "cells": [
             markdown("""
-# Fine-tune the resume-fit classifier (Assignment requirement 8)
+# Fine-tuning the resume-fit classifier
 
-**Runtime -> Change runtime type -> T4 GPU** before running anything, then *Run all*.
-Two training arms, roughly 20 minutes total on a T4 versus ~8 hours on a laptop CPU.
+**Assignment requirement 8** — fine-tune a model on a domain dataset.
+
+This notebook trains DistilBERT to classify a (resume, job description) pair as
+*No Fit* / *Potential Fit* / *Good Fit*, on 6,241 rows of
+`cnamuangtoun/resume-job-description-fit`.
+
+It trains **two arms** that differ in one variable — how the 512 input tokens
+are chosen — so the choice can be made on evidence rather than intuition:
+
+| Arm | Input preparation |
+|---|---|
+| A | **Head truncation** — keep the first 512 tokens |
+| B | **JD-guided selection** — keep the resume blocks most relevant to the job description |
+
+The last cells score both, copy the winner into
+`models/finetuned-fit-classifier/`, and package everything as `finetuned.zip`
+for download.
+
+---
+
+### Before running
+
+**Runtime → Change runtime type → T4 GPU**, then *Run all*.
+About 20 minutes for both arms on a T4, against ~8 hours on a laptop CPU.
 
 Works in the Colab browser and through the VS Code Colab extension alike: no
-`files.upload()` / `files.download()` widgets are used, since those only
-function in a real browser session.
+`files.upload()` / `files.download()` widgets are used, as those only function
+in a real browser session.
 
-> Cells 3 and 4 are generated from `scripts/finetune_classifier.py` and
-> `app/selection.py`. Do not edit them here — edit the real files and re-run
+> Cells marked *generated* are written from `scripts/finetune_classifier.py`
+> and `app/selection.py`. Do not edit them here — edit those files and re-run
 > `python scripts/build_colab_notebook.py`.
 """),
+            markdown("## Step 0 — environment"),
             code("""
-# 1. Confirm a GPU is attached. If this errors, fix the runtime type first.
+# Confirm a GPU is attached. If this errors, fix the runtime type first.
 !nvidia-smi --query-gpu=name,memory.total --format=csv
 """),
             code("""
-# 2. Dependencies. transformers is pinned to the local serving version so the
-#    saved model loads there without a version surprise.
+# transformers is pinned to the version the application serves with, so the
+# saved model loads locally without a version surprise.
 !pip install -q "transformers==4.44.2" datasets accelerate scikit-learn
 """),
+            markdown("""
+## Step 1 — write the training code onto the VM *(generated)*
+
+Both files go in `scripts/`, and the directory matters twice over. The training
+script derives its default output path from `Path(__file__).parent.parent`,
+which from `/content` would resolve to `/` and save the model outside the
+working directory. And `python scripts/finetune_classifier.py` puts `scripts/`
+on `sys.path` — not the working directory — so a copy of `selection.py` at
+`/content` is invisible to the import.
+
+`selection.py` is the same module the running application uses. If the two ever
+diverge, the served model gets an input distribution it never trained on and
+degrades silently.
+"""),
             code("""
-# 3. The training script goes in scripts/ deliberately: it derives its default
-#    output path from Path(__file__).parent.parent, which at /content would
-#    resolve to / and save the model outside the working directory.
 import os
 
 os.makedirs('scripts', exist_ok=True)
 """),
             embed("scripts/finetune_classifier.py", TRAINER),
-            code("""
-# 4. selection.py must sit in scripts/, BESIDE the training script. Running
-#    `python scripts/finetune_classifier.py` puts scripts/ on sys.path -- NOT
-#    the working directory -- so a copy at /content is invisible to the import
-#    and arm B dies with ModuleNotFoundError.
-#
-#    The SAME module runs here during training and inside the served app. If
-#    the two diverge, the model is served an input distribution it never
-#    trained on and degrades silently: not merely a packaging detail.
-pass
-"""),
             embed("scripts/selection.py", SELECTION),
+            markdown("""
+## Step 2 — train both arms
+
+Identical in every respect except input preparation, so any difference between
+them is attributable to that one variable.
+"""),
             code("""
-# 5a. ARM A -- head truncation (the baseline strategy).
+# ARM A -- head truncation (the baseline).
 #
 #     --max-length 512 is DistilBERT's ceiling and it matters here: the median
 #     resume+JD pair is ~1,460 tokens, so 384 fed the model 26% of each pair
@@ -158,16 +187,25 @@ pass
     --selection head --output-dir models/fit-head
 """),
             code("""
-# 5b. ARM B -- JD-guided selection. Identical in every other respect, so any
-#     difference is attributable to the truncation strategy alone.
+# ARM B -- JD-guided selection.
 #     Preprocessing costs ~11 ms/row (TF-IDF), about 90s over the dataset.
 !python scripts/finetune_classifier.py \\
     --epochs 6 --batch-size 16 --lr 3e-5 --max-length 512 --fp16 \\
     --selection jd_guided --output-dir models/fit-jd-guided
 """),
+            markdown("""
+## Step 3 — score both arms and ship the winner
+
+The comparison decides which checkpoint the application serves, and it is made
+here on macro-F1 rather than by a human copying a directory later. The chosen
+strategy is written to `selection_strategy.txt` inside the model directory, and
+the serving code reads it instead of assuming — a model trained on one input
+preparation and served another degrades without erroring.
+"""),
             code(ABLATION_CELL),
+            markdown("## Step 4 — package for download"),
             code("""
-# 6. Package the winning model plus BOTH training reports, so the ablation can
+# Package the winning model plus BOTH training reports, so the ablation can
 #    be written up locally without needing the runtime again. The reports are
 #    globbed rather than named: a failed arm then costs one missing row in the
 #    table instead of aborting the zip and stranding the model on the runtime.
