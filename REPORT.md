@@ -88,9 +88,9 @@ service rather than taken on trust.
 
 ### Why each model
 
-**DiT (`dit-base-finetuned-rvlcdip`)** — a document-image transformer
-pre-trained on 400,000 document scans across 16 classes, one of which is
-literally `resume`. A general natural-image classifier (ResNet on ImageNet) has
+**DiT (`dit-base-finetuned-rvlcdip`)** — a document-image transformer fine-tuned
+on RVL-CDIP, a 400,000-scan corpus of 16 document classes (Harley et al., 2015),
+one of which is literally `resume`. A general natural-image classifier (ResNet on ImageNet) has
 no notion of document layout; DiT is trained on precisely the visual grammar —
 headings, columns, whitespace blocks — that distinguishes a resume from an
 invoice or a letter.
@@ -115,9 +115,10 @@ the task actually needs: `SKILL`, `TITLE`, `COMPANY`, `DEGREE`, `INSTITUTION`,
 from `ORG` to "employer or university, we cannot tell". We started with the
 CoNLL model and replaced it once this limitation showed up in real output.
 
-**DistilBERT (66M params)** — six times faster than BERT-base at roughly 97% of
-its quality. Fit classification runs once per resume against a candidate pool of
-thousands, on CPU; this is the size the deployment constraint dictates.
+**DistilBERT (66M params)** — 60% faster than BERT-base while retaining 97% of
+its GLUE score (Sanh et al., 2019). Fit classification runs once per resume
+against a candidate pool of thousands, on CPU; this is the size the deployment
+constraint dictates.
 
 **`deepset/roberta-base-squad2`** — trained with unanswerable questions, so it
 can return "not stated in this resume" instead of forcing a confident wrong
@@ -361,22 +362,29 @@ prompted arms.
 | Unparsable outputs | 0 (closed label set) | 1 | 0 |
 | Cost per 1,000 resumes | **$0** (local CPU) | ≈ $0.16 | ≈ $0.07 |
 
-**Context effect (B − C) = +0.042.** Giving the LLM the whole document instead of
-the same 512 tokens the small model sees is worth about 4 macro-F1 points.
+**The headline comparison is A vs B, and it is clean.** Given the whole document —
+the LLM's best case — prompted `gpt-oss-20b` scored **0.3433** against the
+fine-tuned model's **0.3569**. Roughly 300× the parameters did not buy accuracy
+on this task.
 
-**Capability effect (C − A) = −0.056.** At *equal input*, the 20-billion-parameter
-model performed **worse** than the fine-tuned 66-million-parameter one. Roughly
-300× the parameters did not buy accuracy on this task; task-specific supervision
-did.
+The decomposition below was the original design, splitting that result into a
+*context* and a *capability* component. Arm C turned out to be confounded, so
+both components are reported as indicative only, not as findings:
+
+- Context effect (B − C) = +0.042 — giving the LLM the whole document rather
+  than a 512-token budget appears to be worth about 4 macro-F1 points.
+- Capability effect (C − A) = −0.056 — on a roughly matched budget the 20B model
+  still did not come out ahead.
 
 > ⚠️ **Caveat on this n=90 run.** Arm C selected its 512 tokens with JD-guided
 > selection while Arm A, after the §6 ablation, ships head truncation — so the
 > two arms were not reading the *same* 512 tokens and the capability effect above
 > is confounded with the preparation method. The serving code now reads the
-> shipped checkpoint's `selection_strategy.txt` and prepares Arm C to match, and
-> a corrected 300-row run is in the appendix. The context effect (B − C) carries
-> the same caveat; the headline A-vs-B comparison does not, since neither of
-> those arms uses selection.
+> shipped checkpoint's `selection_strategy.txt` and prepares Arm C to match, so
+> the confound is fixed in code; the numbers above predate that fix. The context
+> effect (B − C) carries the same caveat. **The headline A-vs-B comparison does
+> not** — neither of those arms uses selection — so the finding that the 20B
+> model failed to beat the 66M one stands on uncontaminated ground.
 
 **Figure 9** shows the two arms disagreeing on a single resume — the same
 comparison as the table above, at n=1.
@@ -416,9 +424,6 @@ The honest one-line conclusion is: **at indistinguishable quality, the 66M model
 costs nothing and answers in 2 seconds, so it is the right choice for this
 deployment — and the experiment's real finding is how little the 300× parameter
 advantage bought.**
-
-*(A 300-row run was also launched to narrow these intervals; if its numbers are
-in the appendix, prefer them — the conclusions above were written against n=90.)*
 
 ---
 
@@ -533,7 +538,7 @@ they are the kind of failure that only real inputs produce.
 | CV2 extraction | `pymupdf-text-layer`, 5,315 chars, 1.2 s — text layer present, OCR correctly not invoked |
 | NLP3 NER | 45 entities: 35 `SKILL`, 6 `DATE`, 1 each `COMPANY` / `DEGREE` / `FIELD` / `INSTITUTION` |
 | NLP3 PII | 5 identifiers detected and withheld: `NAME`, `EMAIL`, `PHONE`, `LOCATION` |
-| NLP4 fit | label returned at 0.66 confidence in 3.7 s on CPU |
+| NLP4 fit | label returned at 0.66 confidence in 3.7 s on CPU (this is the *real* resume; the 0.6791 quoted in §10 is the fabricated sample one) |
 | NLP6 brief | 1,888 chars via `gpt-oss-20b`, not degraded |
 | Orchestration | full chain in 23.5 s |
 
@@ -642,9 +647,9 @@ resume; its results are reported there as figures, not screenshots.
 
 ![Figure 13 — The LLMOps tab rendering live metrics from the API.](docs/screenshots/18_streamlit_llmops.png)
 
-`14_streamlit_fit_compare.png` is the single most useful image in the report: on
-this resume the fine-tuned model returns **No Fit at 0.659** (No Fit 0.659 /
-Potential 0.329 / Good 0.012) while prompted `gpt-oss-20b` returns **Good Fit**,
+**Figure 9** is the single most useful image in the report: on the sample resume
+the fine-tuned model returns **No Fit at 0.6791** (No Fit 0.6791 /
+Potential 0.3128 / Good 0.0080) while prompted `gpt-oss-20b` returns **Good Fit**,
 and the UI states plainly that they disagree. §7 explains why that disagreement
 is not resolvable at the sample sizes available — the image and the analysis
 support each other.
@@ -728,14 +733,37 @@ support each other.
 
 ## Appendix: reproducing the results
 
+Each command below regenerates a specific set of numbers in this report.
+
 ```bash
 pip install -r requirements.txt
-cp .env.example .env          # add your NVIDIA_API_KEY
+cp .env.example .env                 # add your NVIDIA_API_KEY
+python scripts/make_sample_resume.py # data/sample_resume.pdf (fabricated)
 
-python scripts/smoke_test.py              # 9 checks over all 6 sub-tasks
-uvicorn app.main:app --reload             # Swagger UI at /docs
-streamlit run ui/streamlit_app.py
+python scripts/smoke_test.py         # 9 checks over all 6 sub-tasks
+python tests/test_logic.py           # 7 unit checks, incl. PII residual scan
 
-# fine-tuning: open finetune_colab.ipynb, Runtime -> T4 GPU, Run all
-python scripts/evaluate.py --limit 90     # three-arm head-to-head -> logs/eval_report.json
+uvicorn app.main:app --port 8000     # Swagger UI at /docs
+streamlit run streamlit_app.py       # UI at :8501
 ```
+
+| To regenerate | Run | Produces |
+|---|---|---|
+| §5, §6 fine-tuning and ablation | `finetune_colab.ipynb` — Runtime → T4 GPU → Run all | `models/fit-*/training_report.json` |
+| §7 three-arm comparison | `python scripts/evaluate.py --limit 90 --seed 42` | `logs/eval_report.json` |
+| §8 LLMOps metrics M1–M6 | `python scripts/demo_session.py` (server running) | `logs/metrics_snapshot.json` |
+| §10 screenshots | `python scripts/capture_screenshots.py` (both servers running) | `docs/screenshots/*.png` |
+| Submission document | `python scripts/build_report_docx.py --id <BITS ID> --name "<Name>"` | `REPORT.docx` |
+
+Notes that matter for exact reproduction:
+
+- `--seed 42` fixes the balanced 90-row subsample; a different seed gives a
+  different sample and, at this size, visibly different numbers.
+- `evaluate.py` scores whichever checkpoint is in
+  `models/finetuned-fit-classifier/` and prepares its input using the strategy
+  recorded in that directory's `selection_strategy.txt` (`head`).
+- `demo_session.py` rotates `logs/requests.jsonl` aside before it runs, so the
+  metrics describe that session alone. It asserts
+  `prompt + completion == total` and fails loudly if that identity breaks.
+- The LLM arms need a reachable `NVIDIA_API_KEY`; without one the service falls
+  back to a local model and M5 stops reading 0%.
