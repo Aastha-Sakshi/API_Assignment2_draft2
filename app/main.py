@@ -308,8 +308,16 @@ async def screen_candidate(payload: ScreenIn):
 
         log["label"] = result["fit"]["label"]
         if result["brief"]:
-            log["total_tokens"] = result["brief"]["total_tokens"]
-            log["degraded"] = result["brief"]["degraded"]
+            # All three counts, not just the total: M4 sums prompt, completion
+            # and total independently across the log, so an endpoint that logs
+            # only the total makes the dashboard self-contradictory -- the
+            # reported total stops equalling the reported parts.
+            log.update({
+                "prompt_tokens": result["brief"]["prompt_tokens"],
+                "completion_tokens": result["brief"]["completion_tokens"],
+                "total_tokens": result["brief"]["total_tokens"],
+                "degraded": result["brief"]["degraded"],
+            })
         return result
 
 

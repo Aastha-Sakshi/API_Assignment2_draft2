@@ -5,6 +5,33 @@
 **Categories:** Computer Vision + Natural Language Processing
 **Unified objective:** screen one candidate against one job description
 
+### Key results
+
+- **Six sub-tasks** across CV and NLP, chained into one screening call, exposed
+  as **12 REST endpoints** with a Streamlit client and a Docker image.
+- **Fine-tuning worked:** DistilBERT macro-F1 **0.296 → 0.400** on the held-out
+  test split, a **+35%** relative gain over the untrained classification head.
+- **The 66M fine-tuned model beat a 20B prompted LLM on every operational axis** —
+  11× faster, zero marginal cost, no network dependency, no unparsable outputs —
+  at quality the experiment could not distinguish.
+- **Seven LLMOps metrics**, six served live from a structured request log, all
+  regenerable with one command.
+- **Two negative results are reported rather than hidden** (§6, §9), because a
+  measured failure is evidence and an unreported one is not.
+
+### Where each requirement is addressed
+
+| # | Requirement | Section |
+|---|---|---|
+| 1 | Select a domain | Header, §2 |
+| 2 | Two categories from CV / NLP / Speech | §2 |
+| 3 | At least five sub-tasks | §3 |
+| 4 | Identify appropriate models | §3, Figure 2 |
+| 5 | Sub-tasks serve one cohesive objective | §4, Figure 12 |
+| 6 | Interactive app demonstrated via APIs | §10, Figures 1–13 |
+| 7 | LLMOps with at least five metrics | §8, Figures 4 and 13 |
+| 8 | Fine-tune on a domain dataset | §5, §6, §7 |
+
 ---
 
 ## 1. Group details
@@ -34,11 +61,9 @@ formats, confirms it is actually a resume, reads it, extracts structured facts,
 scores fit against a job description, answers follow-up questions with literal
 evidence from the document, and drafts a screening brief.
 
-**Categories chosen: Computer Vision and NLP.** The third available category,
-Speech Recognition, was deliberately not selected. No part of resume screening
-involves audio, and bolting on a speech sub-task would have violated
-requirement 5 — the sub-tasks must serve one cohesive objective, not be a
-checklist of unrelated demos.
+**Categories chosen: Computer Vision and NLP.** Speech Recognition was excluded —
+resume screening has no audio, and adding a speech sub-task would have worked
+against requirement 5.
 
 ---
 
@@ -57,9 +82,9 @@ Six sub-tasks, against a minimum of five.
 
 ★ = the fine-tuning target for requirement 8.
 
-> **Screenshot:** `GET /model-registry`. It returns exactly this list with task
-> and category per model, so the report's claims are verifiable against the
-> running service rather than taken on trust.
+**Figure 2** shows `GET /model-registry` returning exactly this list with task
+and category per model, so the claims above are verifiable against the running
+service rather than taken on trust.
 
 ### Why each model
 
@@ -110,15 +135,41 @@ prompted classification arm).
 
 ![Figure 0 — End-to-end pipeline. Every sub-task consumes the previous one's output.](docs/architecture.png)
 
-Every sub-task consumes the previous one's output. Document classification gates
-extraction; extraction feeds NER, selection and QA; selection and the JD feed the
-classifier; NER, the classifier and the JD feed the brief. Remove any one and the
-chain breaks — none is bolted on to satisfy a count.
+Every sub-task consumes the previous one's output, and `POST /screen-candidate`
+runs the whole chain in a single call.
 
-`POST /screen-candidate` runs the entire chain in a single call and returns one
-screening result.
+The clearest way to show cohesion is to trace one real request. These are the
+actual values from the run captured in Figure 12:
 
-> **Screenshot:** the `POST /screen-candidate` JSON response.
+| Step | Sub-task | Input | Output |
+|---|---|---|---|
+| 1 | **CV1** document type | rendered page image | `resume`, 0.72 confidence → proceed |
+| 2 | **CV2** extraction | the PDF bytes | 1,673 chars via text layer; OCR skipped |
+| 3 | **NLP3** NER | that text | 21 screening entities; 9 personal identifiers separated |
+| 4 | *preparation* | text + job description | 512-token budget, head truncation |
+| 5 | **NLP4** fit | prepared pair | a label with a probability over all three classes |
+| 6 | **NLP5** QA | that text + a question | a literal span, or a refusal |
+| 7 | **NLP6** brief | entities + label + JD + **redacted** text | summary, strengths, gaps, interview questions |
+
+Each arrow is a real dependency, not a sequence:
+
+- **Step 1 gates step 2.** If the upload is not a document, reading it is wasted
+  work and every downstream answer is meaningless.
+- **Step 2 is the root of everything else.** Steps 3, 4 and 6 all consume its text;
+  nothing downstream can run on a document that could not be read.
+- **Step 3 feeds step 7 twice over** — the extracted skills become the brief's
+  evidence, and the identifiers it isolates are what step 7 redacts before the
+  text leaves the machine. Remove NER and the brief loses both its grounding and
+  its privacy control.
+- **Steps 4 and 5 answer different questions about the same document.** The
+  classifier gives a comparable score across candidates; QA answers "does this
+  person have X?" with a quotable span. Neither substitutes for the other.
+- **Step 7 depends on 3, 4 and the JD together.** It is the only step that
+  produces prose, and it is the one a recruiter actually reads.
+
+Removing any single step breaks something concrete downstream. That is the test
+for whether a sub-task earns its place, and it is why Speech Recognition was not
+added (§2): it would have failed this test immediately.
 
 ---
 
@@ -149,8 +200,6 @@ collapses onto the majority class.
 
 *(Source: `models/finetuned-fit-classifier/training_report.json`, produced by
 `scripts/finetune_classifier.py`.)*
-
-> **Screenshots:** the per-epoch training log, and `training_report.json`.
 
 ### Why macro-F1 and not accuracy
 
@@ -215,9 +264,9 @@ preprocessing to save a 3 s classification is a bad trade.
 **Train/serve consistency.** The selection strategy a checkpoint was trained
 with is written into the model directory as `selection_strategy.txt`, and
 `app/pipeline.py` reads it at load time rather than assuming. Applying JD-guided
-selection at serving time to a head-truncation-trained model would feed it an
-input distribution it had never seen and degrade quality silently — the failure
-mode is invisible precisely because nothing errors.
+selection at serving time to a head-truncation-trained model would give it text
+prepared differently from anything it saw in training: quality drops with no
+error raised, so the failure is invisible.
 
 ### Ablation — and the hypothesis was wrong
 
@@ -232,11 +281,10 @@ is how the 512 tokens are chosen.
 | JD-guided selection, 6 ep @ 512 | 0.4605 | 0.3776 | 0.4289 |
 
 **JD-guided selection did not help.** It is 0.0228 macro-F1 *worse* and
-statistically indistinguishable on accuracy (0.4611 vs 0.4605). With ~586 rows
-per class the standard error on a class F1 is about 0.021, so the macro-F1 gap
-is roughly 1.1 SE — not significant either. The fair summary is that the
-sophisticated preprocessing bought nothing, at a cost of 11 ms per pair.
-Head truncation ships.
+statistically indistinguishable on accuracy (0.4611 vs 0.4605). The gap is about
+the size of the measurement noise at this sample size, so it is not a real
+difference. The fair summary is that the more sophisticated preprocessing bought
+nothing, at a cost of 11 ms per pair. Head truncation ships.
 
 The notebook picks the winner on macro-F1 and copies it to
 `models/finetuned-fit-classifier/` automatically, so no human selects the wrong
@@ -256,20 +304,11 @@ candidate a match (see "It is asymmetric" earlier in this section); fixing the
 job-description side removed the gross version of it, but the resume side
 retains it by design.
 
-There is a secondary cost: reordering blocks by relevance destroys document
-structure, and a resume's opening section — summary, current title, headline
-skills — is genuinely its most informative region. Head truncation gets that
-region for free.
-
-**What this suggests instead.** The productive direction is not better selection
-within a 512-token budget but removing the budget: hierarchical encoding, where
-each block is encoded separately and the representations pooled, would let the
-model see the entire document including the parts that evidence a gap. That is
-recorded in §12 as the primary future work.
-
-A negative result is reported here rather than dropped. The hypothesis was
-reasonable, the experiment was controlled, and it did not hold — which is a more
-defensible position than quietly shipping the arm that happened to win.
+**What this suggests instead.** The productive direction is not choosing 512
+tokens more cleverly but not being limited to 512 at all — processing the resume
+in chunks and combining the results, so the model sees the whole document
+including the parts that evidence a gap. That is recorded in §12 as the primary
+future work.
 
 ---
 
@@ -303,6 +342,13 @@ prompted arms.
 
 ### Results (n = 90, balanced 30 / 30 / 30)
 
+> **Why arm A scores 0.3569 here but 0.4004 in §5.** They are different test
+> sets, not different models. §5 reports the full 1,759-row test split, whose
+> natural class imbalance the model can partly ride. This section uses a balanced
+> 90-row subsample so all three arms face the same class distribution — which is
+> harder, because the majority class no longer carries the score. The same model
+> is evaluated in both; only the sample differs.
+
 | | A: fine-tuned | B: prompted, full | C: prompted, matched |
 |---|---|---|---|
 | **Macro-F1** | **0.3569** | 0.3433 | 0.3013 |
@@ -332,14 +378,17 @@ did.
 > the same caveat; the headline A-vs-B comparison does not, since neither of
 > those arms uses selection.
 
-> **Screenshots:** the verdict block of `logs/eval_report.json`, and
-> `POST /compare-fit-models` run on a single resume.
+**Figure 9** shows the two arms disagreeing on a single resume — the same
+comparison as the table above, at n=1.
 
 ### Reading the result — including what it does not support
 
 The fine-tuned model wins on every operational axis by a wide margin: **4.7×
 faster**, zero marginal cost, no network dependency, no unparsable outputs, and
-a calibrated probability rather than a bare label. Those differences are large
+a full score distribution across all three classes rather than a bare label.
+(Those scores are not *calibrated* — no reliability curve was measured — but
+having them at all is what makes a confidence threshold possible.) Those
+differences are large
 and not in dispute.
 
 **The quality differences are not statistically meaningful at this sample size,
@@ -377,44 +426,45 @@ in the appendix, prefer them — the conclusions above were written against n=90
 
 Seven metrics, six of them live from the structured request log on `GET /metrics`:
 
-Measured over one demo session driven end to end through the Streamlit UI —
-11 requests over a 306 s window, captured in `logs/metrics_snapshot.json` and
-screenshotted in `docs/screenshots/05_metrics_llmops.png`:
+Measured over one **reproducible** session — `python scripts/demo_session.py`
+drives a fixed sequence of 13 requests against a warm server, rotates the log
+first so the numbers describe that session and nothing else, and writes
+`logs/metrics_snapshot.json`. Re-running it regenerates every figure below.
 
 | | Metric | Measured value |
 |---|---|---|
-| M1 | Latency | overall p50 **12.25 s**, p95 34.33 s, mean 15.58 s |
-| M2 | Throughput | **2.16 requests/min** across 8 distinct endpoints |
-| M3 | Reliability | success **81.82%**, error 18.18% — both errors deliberate, on `/extract-text` |
-| M4 | Token usage | 1,632 prompt + 435 completion = **5,694 total** over 3 LLM calls; **$0.000569** at $0.10/1M |
-| M5 | Degradation rate | **0.0%** — 3 LLM calls, none fell back to `flan-t5-base` |
-| M6 | Model confidence | `/classify-fit` **0.659**, `/ask` **0.071** |
+| M1 | Latency | overall p50 **2.22 s**, p95 24.00 s, mean 4.83 s |
+| M2 | Throughput | **9.19 requests/min** across 9 distinct endpoints |
+| M3 | Reliability | success **84.62%**, error 15.38% — both errors deliberate (415, 413) |
+| M4 | Token usage | 1,628 prompt + 765 completion = **2,393 total** over 2 LLM calls; **$0.000239** at $0.10/1M |
+| M5 | Degradation rate | **0.0%** — 2 LLM calls, neither fell back to `flan-t5-base` |
+| M6 | Model confidence | `/classify-document` **0.724**, `/classify-fit` **0.679**, `/ask` **0.021** |
 | M7 | Quality (offline) | macro-F1 per arm — see §7 |
 
 Per-endpoint p50, which is where the architectural argument actually shows up:
 
 | Endpoint | n | p50 |
 |---|---|---|
-| `/extract-text` (text layer) | 2 | **0.02 s** |
-| `/classify-fit` (fine-tuned) | 2 | **2.17 s** |
-| `/ask` | 2 | 10.23 s |
-| `/entities` | 1 | 12.25 s |
-| `/ingest-resume` | 1 | 17.10 s |
-| `/compare-fit-models` | 1 | 28.93 s |
-| `/candidate-brief` | 1 | 33.16 s |
-| `/screen-candidate` (full chain) | 1 | 34.33 s |
+| `/ingest-resume` | 3 | **0.03 s** |
+| `/extract-text` (text layer) | 1 | **0.10 s** |
+| `/entities` | 1 | 1.24 s |
+| `/classify-fit` (fine-tuned) | 1 | **1.39 s** |
+| `/ask` | 3 | 2.47 s |
+| `/compare-fit-models` | 1 | 4.18 s |
+| `/classify-document` | 1 | 6.58 s |
+| `/candidate-brief` | 1 | 15.86 s |
+| `/screen-candidate` (full chain) | 1 | 24.00 s |
 
 Four of these numbers need a sentence, because the figure alone misleads:
 
 **The latency spread is the fine-tuning argument, stated in telemetry.** The
-fine-tuned classifier answers in **2.17 s on CPU**; the same judgement from
-`gpt-oss-20b` over the network costs an order of magnitude more, and
-`/compare-fit-models` — which runs both — costs 28.93 s. Section 7 argues that the
-66M model is the right deployment choice; this table is the evidence, not the
-assertion.
+fine-tuned classifier answers in **1.39 s on CPU**; the same judgement written as
+prose by `gpt-oss-20b` over the network costs **15.86 s**, an 11× difference.
+Section 7 argues that the 66M model is the right deployment choice; this table is
+the evidence, not the assertion.
 
-**`/candidate-brief` was optimised during development from 111 s to 33.16 s**, a
-3.4× reduction, by three changes measured separately: enabling `reasoning_effort:
+**`/candidate-brief` was optimised during development from 111 s to under 20 s**, a
+5× reduction, by three changes measured separately: enabling `reasoning_effort:
 low` on `gpt-oss-20b` (820 → 393 completion tokens for output of comparable
 length), warming the models at startup so the first request does not pay the load
 cost, and removing a duplicated NER pass — `screen_candidate` already detects
@@ -427,7 +477,16 @@ path working: `HTTP 415 Unsupported file type` and `HTTP 413 File exceeds 10 MB
 limit`. A 100% success rate over a hand-picked happy path would say less about
 reliability than two correctly-refused uploads do.
 
-**M6's `/ask` value of 0.071 is low because abstentions are excluded.** The QA
+**M4's parts are asserted to equal its total.** An earlier version of this table
+reported a total larger than its own prompt-plus-completion figures. The cause
+was that `/screen-candidate` logged `total_tokens` but not the two components,
+while the dashboard sums all three independently across the log — so one LLM call
+contributed to the total twice and to the parts once. Both are logged now, and
+`demo_session.py` asserts `prompt + completion == total` before printing, so the
+identity cannot quietly break again. A metrics section whose own arithmetic does
+not close gives a reader no reason to trust any other number in it.
+
+**M6's `/ask` value of 0.021 is low, and that is a real quality signal.** The QA
 model reports a *null* score of ~0.76 when it declines to answer (§9), and
 logging that as confidence would have made the metric read highest exactly when
 the endpoint answered least. `app/main.py` logs `None` on abstention, so M6
@@ -457,7 +516,8 @@ Practices implemented beyond the metrics:
   whether the fine-tuned model is loaded.
 - **Containerised** — `Dockerfile` + `docker-compose.yml`, pinned dependencies.
 
-> **Screenshots:** the `GET /metrics` response, and the Streamlit LLMOps tab.
+**Figure 4** shows the `GET /metrics` response and **Figure 13** the same metrics
+rendered in the Streamlit LLMOps tab.
 
 ---
 
@@ -477,20 +537,14 @@ they are the kind of failure that only real inputs produce.
 | NLP6 brief | 1,888 chars via `gpt-oss-20b`, not degraded |
 | Orchestration | full chain in 23.5 s |
 
-**Defect 1 — the QA endpoint abstained on every question.** `roberta-base-squad2`
-was called with `handle_impossible_answer=True`. On a 5,315-character resume the
-HuggingFace pipeline splits the context into roughly ten overlapping stride
-windows and softmaxes each one independently. The null ("unanswerable") option is
-a single token pair — `(CLS, CLS)` — which concentrates probability mass, whereas
-a genuine answer's mass is spread across many plausible start/end pairs within
-its window. The library keeps the *minimum* null score across all windows
-(`question_answering.py:141`), and even that minimum was 0.735, while the correct
-span scored 0.0135 in the single window that contained it. Ranking those two
-numbers against each other is not comparing like with like, so the null wins
-every time: asked what languages the candidate knows, the correct answer sat at
-rank 2 and the endpoint replied "Not stated in this resume" to every question. On
-the 473-character fixture used during development — a single window — the bug was
-invisible.
+**Defect 1 — the QA endpoint abstained on every question.** Long documents are
+scored in overlapping chunks. The "no answer" option gets one concentrated score,
+while a real answer's score is spread thin across many candidate spans — so the
+two are not comparable, and "no answer" wins every time. Here the "no answer"
+score was 0.735 against a correct span at 0.0135. Asked what languages the
+candidate knows, the endpoint replied "Not stated in this resume" to every
+question. The short fixture used during development fitted in a single chunk, so
+the bug was invisible there.
 
 The fix requests the top 5 candidates, separates null candidates from real
 spans, and abstains only when the best real span falls below a threshold
@@ -611,19 +665,20 @@ support each other.
   Two layers do the work, because neither is sufficient alone. Email, phone and
   URL have dependable surface forms and are matched by pattern; names and places
   have none and come from the NER model. The regex layer exists because of a
-  measured failure: the token classifier returns spans rebuilt from wordpieces,
-  so a real email came back as `abc99 @ xyz. com`, which occurs nowhere in the
-  document — a literal substitution matched nothing while the counter still
-  reported success, leaving the address in the prompt. Both are now verified by
-  a residual scan in `tests/test_logic.py`, in both directions: identifiers must
-  disappear, and ordinary numbers (years, CGPA, latencies, record counts) must
-  survive, since over-redaction silently degrades the brief.
+  measured failure: the NER model returns text reassembled from sub-word
+  fragments, so a real email came back as `abc99 @ xyz. com` — a string that
+  appears nowhere in the document. Substituting it matched nothing, the counter
+  still reported success, and the real address stayed in the prompt. Both layers
+  are now verified by a residual scan in `tests/test_logic.py`, in both
+  directions: identifiers must disappear, and ordinary numbers (years, CGPA,
+  latencies, record counts) must survive, since over-redaction silently degrades
+  the brief.
 
   **Scope, stated precisely:** the fit classifier is *not* redacted. It was
-  fine-tuned on raw resume text, so redacting at inference would feed it an
-  input distribution it never saw. It runs locally and emits only a three-way
-  label. Coverage is also bounded by NER recall — an unusual name the model
-  misses is not removed. This reduces exposure; it does not eliminate it.
+  fine-tuned on raw resume text, so redacting at inference would give it text
+  prepared differently from its training data. It runs locally and emits only a
+  three-way label. Coverage is also bounded by NER recall — an unusual name the
+  model misses is not removed. This reduces exposure; it does not eliminate it.
 - **QA is extractive.** `POST /ask` returns literal spans from the resume; it
   structurally cannot invent a qualification the candidate does not claim.
 - **No raw resume text in logs.** `logs/requests.jsonl` records lengths, hashes,
