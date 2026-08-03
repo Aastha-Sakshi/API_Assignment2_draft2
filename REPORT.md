@@ -563,7 +563,7 @@ resume, and are in `docs/screenshots/`. Insert each one under its caption.
 
 ![Figure 3 — GET /health: LLM backend reachable, fine-tuned classifier loaded.](docs/screenshots/04_health.png)
 
-![Figure 4 — GET /metrics: M1–M7 served from the structured request log (requirement 7).](docs/screenshots/05_metrics_llmops.png)
+![Figure 4 — GET /metrics: M1–M6 served live from the structured request log (requirement 7). The M7 block is summarised in this view only; the live response carries the full offline report, which is tabulated in §7.](docs/screenshots/05_metrics_llmops.png)
 
 ![Figure 5 — Streamlit UI, one tab per sub-task; the client holds no model code.](docs/screenshots/10_streamlit_home.png)
 

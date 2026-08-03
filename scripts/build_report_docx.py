@@ -25,6 +25,10 @@ from docx.shared import Inches, Pt, RGBColor
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# Usable height of a Letter page after default 1in margins, less room for a
+# caption. Figures taller than this get scaled down rather than split.
+MAX_FIGURE_IN = 8.0
+
 # `code`, **bold**, *italic* -- ordered so the code pattern wins first and its
 # contents are not re-scanned for emphasis markers.
 _SPAN = re.compile(r"(`[^`]+`|\*\*[^*]+\*\*|(?<!\*)\*(?!\*)[^*]+\*(?!\*))")
@@ -70,6 +74,7 @@ def build(md_path: Path, out_path: Path) -> None:
     i, n = 0, len(lines)
     tables = code_blocks = images = 0
     missing = []
+    tall = []
 
     while i < n:
         line = lines[i]
@@ -149,7 +154,14 @@ def build(md_path: Path, out_path: Path) -> None:
                 # 6.2in fits the default page's text width; letting python-docx
                 # use the PNG's native size overflows the margin on a 1500px
                 # screenshot and silently crops it in print.
-                doc.add_picture(str(path), width=Inches(6.2))
+                picture = doc.add_picture(str(path), width=Inches(6.2))
+                # A full-page capture of a long JSON response can come out taller
+                # than the page, splitting one figure across two sheets. Cap the
+                # height and let the width shrink to keep it on a single page.
+                if picture.height > Inches(MAX_FIGURE_IN):
+                    picture.width = int(picture.width * Inches(MAX_FIGURE_IN) / picture.height)
+                    picture.height = Inches(MAX_FIGURE_IN)
+                    tall.append(f"{src} ({picture.width / 914400:.1f}in wide after scaling)")
                 doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
             else:
                 warn = doc.add_paragraph()
@@ -227,6 +239,8 @@ def build(md_path: Path, out_path: Path) -> None:
     print(f"  {len(doc.paragraphs)} paragraphs, {tables} tables, {code_blocks} code blocks, {images} images")
     if missing:
         print(f"  {len(missing)} MISSING image(s): {missing}")
+    for note in tall:
+        print(f"  scaled to fit one page: {note}")
 
     remaining = [
         ln for ln in md_path.read_text(encoding="utf-8").splitlines()

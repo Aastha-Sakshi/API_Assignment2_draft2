@@ -149,13 +149,14 @@ def drive_streamlit(page) -> None:
 
 
 def main():
+    global RESUME
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--channel", default="msedge", help="msedge | chrome | chromium")
     parser.add_argument("--resume", default=str(RESUME),
                         help="resume to drive the UI with (PDF/PNG/TXT)")
     args = parser.parse_args()
 
-    global RESUME
     RESUME = Path(args.resume)
     if not RESUME.exists():
         raise SystemExit(f"resume not found: {RESUME}")
