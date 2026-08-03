@@ -1,0 +1,35 @@
+# Secrets -- .env holds a live NVIDIA API key.
+.env
+
+# Environments
+venv/
+.venv/
+
+# Model weights and checkpoints (255 MB; also over GitHub's 100 MB file limit)
+models/
+training-checkpoints/
+*.zip
+
+# Runtime artefacts
+__pycache__/
+*.pyc
+logs/
+uploads/
+.cache/
+
+# ---------------------------------------------------------------------------
+# Personal data. The resume used for end-to-end validation belongs to a real
+# person, and the UI screenshots render its contact block -- name, phone,
+# email and city -- in full. Publishing either would disclose a third party's
+# personal data irreversibly, which is the exact thing the app's own PII
+# handling exists to prevent. Keep them local; they belong in the submitted
+# document, not in version control.
+data/*.pdf
+data/*.png
+data/*.jpg
+data/*.jpeg
+docs/screenshots/
+REPORT.docx
+
+# Word lock files
+~$*

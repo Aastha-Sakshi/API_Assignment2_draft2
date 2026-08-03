@@ -1,0 +1,22 @@
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    env_file: [.env]
+    environment:
+      WARMUP_MODELS: "1"      # pay model-load cost at startup, not on the first demo request
+    volumes:
+      - ./models:/srv/models      # fine-tuned model mounted, not baked in
+      - ./logs:/srv/logs          # request log survives container restarts
+      - hf-cache:/srv/.cache/huggingface
+
+  ui:
+    build: .
+    command: streamlit run streamlit_app.py --server.address 0.0.0.0 --server.port 8501
+    ports: ["8501:8501"]
+    environment:
+      API_BASE: http://api:8000
+    depends_on: [api]
+
+volumes:
+  hf-cache:

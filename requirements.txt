@@ -1,0 +1,28 @@
+# --- API layer ---
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+pydantic==2.9.2
+python-dotenv==1.0.1
+
+# --- Models / inference (CPU) ---
+transformers==4.44.2
+torch==2.13.0             # 2.13 is what python-doctr's torchvision pin resolves to
+torchvision==0.28.0
+sentencepiece==0.2.0
+openai>=1.68              # <1.55 passes `proxies=` to httpx, removed in httpx 0.28
+
+# --- Document handling ---
+pymupdf==1.24.10          # text-layer PDFs + page rasterisation for the DiT classifier
+python-doctr[torch]==1.0.1  # OCR for scans/photos — pip-only, no system binary
+Pillow==10.4.0
+
+# --- Evaluation / fine-tuning ---
+scikit-learn==1.5.2
+rouge-score==0.1.2
+datasets==2.21.0
+accelerate==0.34.2
+
+# --- Demo UI ---
+streamlit==1.38.0
+requests==2.32.3

@@ -1,0 +1,14 @@
+Jane Doe
+Software Engineer
+
+Experience:
+- 3 years at Acme Corp as a Backend Developer, working with Python, FastAPI, and AWS.
+- Built and deployed microservices handling 1M+ requests/day.
+- Led migration of legacy systems to Kubernetes on AWS EKS.
+
+Education:
+- B.Tech in Computer Science, Indian Institute of Technology, 2020.
+
+Skills: Python, FastAPI, AWS, Docker, Kubernetes, PostgreSQL, REST APIs, CI/CD.
+
+Certifications: AWS Certified Solutions Architect - Associate.

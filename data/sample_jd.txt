@@ -1,0 +1,29 @@
+Senior Backend Engineer — Cloud Platform
+
+About the role
+We are hiring a backend engineer to own the services behind our customer-facing
+platform. You will design APIs, run them in production, and work closely with the
+platform team on our Kubernetes migration.
+
+Required
+- 3+ years of professional experience building backend services in Python
+- Strong experience with REST API design (FastAPI, Flask or Django REST)
+- Hands-on production experience with AWS (EC2, S3, IAM, EKS or ECS)
+- Working knowledge of relational databases, particularly PostgreSQL
+- Experience with containerisation using Docker
+- Must have experience operating services in production, not only building them
+
+Preferred
+- Kubernetes experience in a production environment
+- CI/CD pipeline ownership (GitHub Actions, Jenkins or GitLab CI)
+- Exposure to infrastructure-as-code (Terraform or CloudFormation)
+- Nice to have: experience with event-driven architectures (Kafka, SQS)
+
+Responsibilities
+- Design, build and maintain high-throughput REST services
+- Improve reliability and reduce latency of existing endpoints
+- Participate in on-call rotation and incident response
+- Mentor junior engineers through code review
+
+Education
+- Bachelor's degree in Computer Science or equivalent practical experience
