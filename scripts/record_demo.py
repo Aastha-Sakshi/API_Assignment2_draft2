@@ -61,6 +61,11 @@ SCALE = 1.0  # set from --scale
 
 CARD_JS = """
 ([num, title, sub]) => {
+  // Idempotent. card() draws, runs the transition, then draws again -- and when
+  // that transition is a tab click rather than a navigation, nothing tore the
+  // first card down. Two cards with one id meant getElementById() removed one
+  // and left the other welded over the app for the rest of the recording.
+  document.querySelectorAll('#__demo_card__').forEach(n => n.remove());
   const el = document.createElement('div');
   el.id = '__demo_card__';
   el.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#0f1420;'
@@ -93,7 +98,8 @@ CARD_JS = """
 }
 """
 
-CARD_REMOVE_JS = "() => document.getElementById('__demo_card__')?.remove()"
+CARD_REMOVE_JS = ("() => document.querySelectorAll('#__demo_card__')"
+                  ".forEach(n => n.remove())")
 
 # Runs before paint on every new document. Without it a navigation shows the
 # browser's white default for as long as the page takes to load -- several
@@ -166,6 +172,11 @@ def card(page, num: str, title: str, sub: str, hold: float = 2.6, then=None,
     page.wait_for_timeout(int(settle * 1000))
     page.wait_for_timeout(int(hold * SCALE * 0.45 * 1000))
     page.evaluate(CARD_REMOVE_JS)
+    # A card left behind covers everything after it, and the recording still
+    # runs to completion and writes a file -- the failure is only visible by
+    # watching all seven minutes. Fail here instead.
+    left = page.evaluate("() => document.querySelectorAll('#__demo_card__').length")
+    assert left == 0, f"card {num} still on screen after removal ({left} left)"
     page.wait_for_timeout(150)
 
 
