@@ -1,14 +1,14 @@
 0:00  01 — What this project does
-0:05  02 — The API
+0:04  02 — The API
 0:39  03 — Which models, and why
-0:55  04 — Is it healthy?
-1:13  05 — The app
-1:25  06 — Reading the resume
-2:08  07 — Pulling out the facts
-2:34  08 — Scoring the fit
-2:56  09 — Small model vs large model
-3:31  10 — Asking questions
-4:12  11 — Writing the brief
-4:55  12 — All of it, in one call
-5:39  13 — Watching it in production
-6:26  (end)
+0:58  04 — Is it healthy?
+1:11  05 — The app
+1:34  06 — Reading the resume
+2:20  07 — Pulling out the facts
+2:46  08 — Scoring the fit
+3:09  09 — Small model vs large model
+3:47  10 — Asking questions
+4:33  11 — Writing the brief
+5:13  12 — All of it, in one call
+6:00  13 — Watching it in production
+6:49  (end)
