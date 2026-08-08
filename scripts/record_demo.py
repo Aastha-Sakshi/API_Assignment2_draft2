@@ -49,6 +49,60 @@ JD = ROOT / "data" / "sample_jd.txt"
 SCALE = 1.0  # set from --scale
 
 
+CARD_JS = """
+([num, title, sub]) => {
+  const el = document.createElement('div');
+  el.id = '__demo_card__';
+  el.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#0f1420;'
+    + 'display:flex;align-items:center;justify-content:center;'
+    + "font-family:'Segoe UI',system-ui,sans-serif;color:#e8ecf4";
+  const box = document.createElement('div');
+  box.style.cssText = 'max-width:1250px;padding:0 90px';
+  const n = document.createElement('div');
+  n.style.cssText = "font:600 30px/1 'Segoe UI';letter-spacing:.32em;color:#5b8def";
+  n.textContent = num;
+  const rule = document.createElement('div');
+  rule.style.cssText = 'height:3px;width:82px;background:#5b8def;margin:26px 0 34px';
+  const h = document.createElement('div');
+  h.style.cssText = "font:600 78px/1.12 'Segoe UI';letter-spacing:-.015em";
+  h.textContent = title;
+  const s = document.createElement('div');
+  s.style.cssText = "font:300 33px/1.5 'Segoe UI';color:#93a2bd;margin-top:26px";
+  s.textContent = sub;
+  box.append(n, rule, h, s);
+  el.append(box);
+  document.body.append(el);
+}
+"""
+
+CARD_REMOVE_JS = "() => document.getElementById('__demo_card__')?.remove()"
+
+TIMELINE = []  # (seconds_from_start, section title) -- written out for the VO script
+_started = None
+
+
+def card(page, num: str, title: str, sub: str, hold: float = 2.6) -> None:
+    """
+    A full-frame section card, drawn by the browser itself.
+
+    Drawing the card into the page rather than splicing it in with ffmpeg
+    afterwards means it lands exactly where it belongs -- no cut points to
+    detect, no drift between the card and the section it introduces.
+
+    It is an overlay on top of the live page, not a replacement for it:
+    set_content() would tear down the running Streamlit app, taking the
+    uploaded resume and everything else in its session state with it, and every
+    tab click after the card would then have nothing to click.
+    """
+    if _started is not None:
+        TIMELINE.append((time.time() - _started, f"{num} — {title}"))
+    print(f"\n  == {num}  {title}")
+    page.evaluate(CARD_JS, [num, title, sub])
+    page.wait_for_timeout(int(hold * SCALE * 1000))
+    page.evaluate(CARD_REMOVE_JS)
+    page.wait_for_timeout(120)
+
+
 def beat(page, seconds: float, note: str = "") -> None:
     """Hold the current view long enough to narrate over it."""
     if note:
@@ -110,9 +164,12 @@ def convert(webm: Path, out: Path) -> None:
 
 def demo(page, jd_text: str) -> None:
     """The scripted walkthrough. Ordered to match the report's sections."""
+    card(page, "01", "What this project does",
+         "Six AI sub-tasks, one recruitment API", hold=4.5)
+
     # 1 -- the API surface (requirement 6) ---------------------------------
-    print("  [1/12] Swagger: the API surface")
     page.goto(f"{API}/docs", wait_until="networkidle", timeout=120_000)
+    card(page, "02", "The API", "Every sub-task, exposed as an endpoint")
     beat(page, 9, "title + endpoint list")
     scroll(page, 900)
     beat(page, 7, "CV and NLP endpoint groups")
@@ -124,19 +181,27 @@ def demo(page, jd_text: str) -> None:
     # 2 -- model registry ---------------------------------------------------
     print("  [2/12] Model registry")
     page.goto(f"{API}/model-registry", wait_until="networkidle")
+    card(page, "03", "Which models, and why",
+         "A registry you can query, not a claim in a document")
     beat(page, 14, "every model, by sub-task and category")
 
     # 3 -- health -----------------------------------------------------------
     print("  [3/12] Health")
     page.goto(f"{API}/health", wait_until="networkidle")
+    card(page, "04", "Is it healthy?",
+         "Backend reachable, fine-tuned model loaded")
     beat(page, 10, "backend reachable, fine-tuned model loaded")
 
     # 4 -- the UI -----------------------------------------------------------
     print("  [4/12] Streamlit home")
     page.goto(UI, wait_until="networkidle", timeout=120_000)
     page.wait_for_timeout(6000)
+    card(page, "05", "The app",
+         "One tab per sub-task — the UI holds no model code")
     beat(page, 10, "one tab per sub-task; the client holds no model code")
 
+    card(page, "06", "Reading the resume",
+         "Computer Vision — is it a resume, and what does it say?")
     # 5 -- ingest -----------------------------------------------------------
     print("  [5/12] Upload + ingest")
     tab(page, 0)
@@ -155,18 +220,24 @@ def demo(page, jd_text: str) -> None:
     else:
         print("    WARNING: JD box not found")
 
+    card(page, "07", "Pulling out the facts",
+         "Named entity recognition")
     # 6 -- entities ---------------------------------------------------------
     print("  [6/12] NER")
     tab(page, 1)
     run_button(page, "Extract entities")
     beat(page, 14, "skills/titles/dates scored; identifiers held back")
 
+    card(page, "08", "Scoring the fit",
+         "The model we fine-tuned ourselves")
     # 7 -- fine-tuned classifier --------------------------------------------
     print("  [7/12] Fit — fine-tuned")
     tab(page, 2)
     run_button(page, "Run fine-tuned model")
     beat(page, 14, "label + full score distribution, ~1s on CPU")
 
+    card(page, "09", "Small model vs large model",
+         "The experiment at the centre of this project")
     # 8 -- the comparison, the report's centrepiece -------------------------
     print("  [8/12] Fit — both models side by side")
     run_button(page, "Compare both side by side")
@@ -174,6 +245,8 @@ def demo(page, jd_text: str) -> None:
     scroll(page, 500, steps=4)
     beat(page, 8)
 
+    card(page, "10", "Asking questions",
+         "Answers quoted from the resume — or refused")
     # 9 -- extractive QA -----------------------------------------------------
     print("  [9/12] Question answering")
     tab(page, 3)
@@ -190,6 +263,8 @@ def demo(page, jd_text: str) -> None:
     run_button(page, "Ask")
     beat(page, 12, "it declines instead of inventing one")
 
+    card(page, "11", "Writing the brief",
+         "Generated from text with personal details removed")
     # 10 -- generation --------------------------------------------------------
     print("  [10/12] Candidate brief")
     tab(page, 4)
@@ -198,6 +273,8 @@ def demo(page, jd_text: str) -> None:
     scroll(page, 700, steps=5)
     beat(page, 12, "strengths, gaps, interview questions")
 
+    card(page, "12", "All of it, in one call",
+         "Six sub-tasks, one request")
     # 11 -- the whole chain in one call ---------------------------------------
     print("  [11/12] Full screening")
     tab(page, 5)
@@ -206,6 +283,8 @@ def demo(page, jd_text: str) -> None:
     scroll(page, 800, steps=5)
     beat(page, 12)
 
+    card(page, "13", "Watching it in production",
+         "Seven metrics, measured not asserted")
     # 12 -- LLMOps ------------------------------------------------------------
     print("  [12/12] LLMOps")
     tab(page, 6)
@@ -249,7 +328,7 @@ def main() -> None:
             record_video_size={"width": WIDTH, "height": HEIGHT},
         )
         page = context.new_page()
-        started = time.time()
+        globals()["_started"] = started = time.time()
         try:
             demo(page, jd_text)
         finally:
@@ -265,6 +344,14 @@ def main() -> None:
     print(f"\n  converting {videos[0].name} -> mp4")
     convert(videos[0], out)
     shutil.rmtree(staging, ignore_errors=True)
+
+    # Cue sheet for whoever writes the voice-over: where each card lands.
+    cues = out.with_name(out.stem + "_timeline.txt")
+    with cues.open("w", encoding="utf-8") as handle:
+        for seconds, label in TIMELINE:
+            handle.write(f"{int(seconds) // 60}:{int(seconds) % 60:02d}  {label}\n")
+        handle.write(f"{int(elapsed) // 60}:{int(elapsed) % 60:02d}  (end)\n")
+    print(f"  cue sheet -> {cues.name}")
 
     print(f"wrote {out}  ({out.stat().st_size / 1e6:.1f} MB)")
     print(f"  recorded {elapsed / 60:.1f} min ({elapsed:.0f}s)")

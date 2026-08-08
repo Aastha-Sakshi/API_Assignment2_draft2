@@ -36,5 +36,10 @@ data/*.jpeg
 # The submitted document carries the student's name and ID; REPORT.md does not.
 REPORT.docx
 
+# Same rule for the video: docs/demo.mp4 is committed and carries no personal
+# details, while the titled cut prepends a card with the name and BITS ID.
+# Rebuild it locally with scripts/add_title_card.py.
+docs/demo_titled.mp4
+
 # Word lock files
 ~$*
