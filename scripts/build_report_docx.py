@@ -65,10 +65,13 @@ def is_separator(line: str) -> bool:
     return bool(re.fullmatch(r"\|[\s:|-]+\|", line.strip()))
 
 
-def build(md_path: Path, out_path: Path, student_id: str = "", name: str = "") -> None:
+def build(md_path: Path, out_path: Path, student_id: str = "", name: str = "",
+          font_size: float = 10.5) -> None:
     doc = Document()
     doc.styles["Normal"].font.name = "Calibri"
-    doc.styles["Normal"].font.size = Pt(10.5)
+    # Larger sizes are for documents meant to be read aloud rather than read on
+    # a page -- the voice-over script is easier to keep your place in at 13pt.
+    doc.styles["Normal"].font.size = Pt(font_size)
 
     source = md_path.read_text(encoding="utf-8")
 
@@ -272,5 +275,7 @@ if __name__ == "__main__":
     parser.add_argument("--id", dest="student_id", default="",
                         help="BITS ID, substituted for {{BITS_ID}}")
     parser.add_argument("--name", default="", help="student name, substituted for {{NAME}}")
+    parser.add_argument("--font-size", type=float, default=10.5,
+                        help="body text size in points (13 suits a read-aloud script)")
     args = parser.parse_args()
-    build(Path(args.md), Path(args.out), args.student_id, args.name)
+    build(Path(args.md), Path(args.out), args.student_id, args.name, args.font_size)
