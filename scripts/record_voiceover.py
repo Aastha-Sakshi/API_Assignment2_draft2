@@ -139,9 +139,17 @@ def mux(video: Path, wav: Path, out: Path) -> None:
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
          "-i", str(video), "-i", str(wav),
          "-map", "0:v:0", "-map", "1:a:0",
+         # Stereo 44.1k rather than the mono 48k that came off the mic: some
+         # players and upload pipelines are picky about mono AAC, and matching
+         # the most ordinary format going costs nothing here.
          "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-         # The audio runs a second long by design; cut it to the picture.
-         "-shortest", "-movflags", "+faststart", str(out)],
+         "-ac", "2", "-ar", "44100",
+         # apad before -shortest, or a voice track that came in short would
+         # truncate the picture to match it. Padding with silence first means
+         # -shortest can only ever cut the audio, so the video stays whole
+         # whichever way the lengths fall.
+         "-af", "apad", "-shortest",
+         "-movflags", "+faststart", str(out)],
         check=True,
     )
 
