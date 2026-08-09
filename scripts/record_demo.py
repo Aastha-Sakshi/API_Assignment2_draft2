@@ -273,6 +273,133 @@ def convert(webm: Path, out: Path, trim: float = 0.0) -> None:
     )
 
 
+# A short excerpt rather than the whole CV: it has to stay legible in Swagger's
+# request-body box on video. From data/sample_resume.pdf, which is fabricated --
+# no real person's details go into a committed recording.
+# ASCII only: Swagger echoes the request into a curl box that escapes non-ASCII,
+# so an em dash shows up on screen as a literal — and reads as a bug.
+SWAGGER_RESUME = (
+    "Priya Sharma - Senior Data Scientist. 6 years building production ML. "
+    "Python, PyTorch, scikit-learn, SQL, Spark, AWS SageMaker, Docker. "
+    "Led a churn-prediction model serving 2M customers. "
+    "MSc Computer Science, IIT Delhi."
+)
+
+
+def swagger_try_it(page, jd_text: str) -> None:
+    """Expand one POST endpoint and actually call it, on camera.
+
+    A page of endpoint names only shows that the API was documented. Running one
+    shows that the documentation is live -- the request body, the Execute
+    button, and a real 200 coming back from the model.
+    """
+    page.locator(".opblock-summary-path", has_text="/classify-fit").first.click()
+    beat(page, 6, "request schema and example response")
+    page.get_by_role("button", name="Try it out").first.click()
+    beat(page, 3)
+
+    # The JD carries em dashes of its own, and they land in the same curl box.
+    # Mapped to their ASCII equivalents rather than folded: "replace" turns them
+    # into "?", which looks more like a bug on screen than the dash did.
+    jd = " ".join(jd_text.split())[:400]
+    jd = jd.translate(str.maketrans({"—": "-", "–": "-", "’": "'",
+                                     "“": '"', "”": '"'}))
+    jd = jd.encode("ascii", "ignore").decode()
+    body = json.dumps({
+        "resume_text": SWAGGER_RESUME,
+        "job_description": jd,
+        "method": "finetuned",
+    }, indent=2)
+    page.locator("textarea.body-param__text").first.fill(body)
+    beat(page, 5, "a real resume and job description in the request body")
+
+    page.get_by_role("button", name="Execute").first.click()
+    # live-responses-table, not responses-table: the latter is the documented
+    # example ("string"), which is on the page before Execute is ever clicked
+    # and so matches instantly. Only the live table proves the call returned.
+    live = page.locator("table.live-responses-table").first
+    live.wait_for(timeout=60_000)
+    live.scroll_into_view_if_needed()
+    beat(page, 12, "the live 200 -- label and score distribution")
+
+
+def section_swagger(page, num: str | None, jd_text: str = "",
+                    interact: bool = False) -> None:
+    """The API surface. Shared by the full demo and the standalone clip.
+
+    `num` is None for the standalone clip, which carries no title cards -- the
+    page is already open, put there before the clock started.
+
+    `interact` runs one endpoint live. Only the standalone clip does it -- in
+    the full walkthrough the Streamlit sections already show every endpoint
+    returning real output, so doing it here as well would just be slower.
+    """
+    if num is not None:
+        # settle: Swagger fetches openapi.json and renders the operation list
+        # after "load" fires, so the card has to outlast the load event itself.
+        card(page, num, "The API", "Every sub-task, exposed as an endpoint",
+             settle=2.0,
+             then=lambda: page.goto(f"{API}/docs", wait_until="commit",
+                                    timeout=120_000))
+    beat(page, 9, "title + endpoint list")
+    scroll(page, 900)
+    beat(page, 7, "CV and NLP endpoint groups")
+    scroll(page, 900)
+    beat(page, 7, "orchestration + LLMOps groups")
+    scroll(page, -1800, steps=4, pause=0.3)
+    beat(page, 3)
+    if interact:
+        swagger_try_it(page, jd_text)
+
+
+def section_llmops(page, num: str | None, then=None) -> None:
+    """The metrics dashboard.
+
+    `num` is None for the standalone clip -- no title card, and the tab is
+    already open, clicked before the clock started.
+    """
+    if num is not None:
+        card(page, num, "Watching it in production",
+             "Seven metrics, measured not asserted", then=then)
+    run_button(page, "Refresh /metrics", budget=90)
+    beat(page, 14, "M1-M6 live from the request log")
+    scroll(page, 700, steps=5)
+    beat(page, 14, "latency, reliability, tokens, cost, confidence")
+    scroll(page, 700, steps=5)
+    beat(page, 10)
+
+
+def prepare_llmops(page) -> None:
+    """Open the app on the LLMOps tab before the clock starts.
+
+    Getting there costs a navigation, seven seconds of Streamlit building its
+    layout, and a tab click -- none of which belongs on camera, and none of
+    which a card can cover, since the navigation destroys the card. Doing it in
+    the warm-up window means the clip's first card lifts onto a ready page.
+    """
+    page.goto(UI, wait_until="load", timeout=120_000)
+    page.wait_for_timeout(7000)
+    click_tab(page, 6)
+
+
+def prepare_swagger(page) -> None:
+    """Open the docs before the clock starts, so the clip needs no title card
+    to hide the load behind."""
+    page.goto(f"{API}/docs", wait_until="load", timeout=120_000)
+    page.wait_for_timeout(2500)
+
+
+def clip_swagger(page, jd_text: str) -> None:
+    section_swagger(page, None, jd_text=jd_text, interact=True)
+
+
+def clip_llmops(page, jd_text: str) -> None:
+    # The metrics come from logs/requests.jsonl, which survives between runs --
+    # this clip reads the traffic the full demo generated rather than
+    # regenerating it, so it costs one page load instead of six model calls.
+    section_llmops(page, None)
+
+
 def demo(page, jd_text: str) -> None:
     """The scripted walkthrough. Ordered to match the report's sections.
 
@@ -287,19 +414,7 @@ def demo(page, jd_text: str) -> None:
 
     # 1 -- the API surface (requirement 6) ---------------------------------
     print("  [1/12] Swagger")
-    # settle: Swagger fetches openapi.json and renders the operation list after
-    # "load" fires, so the card has to outlast the load event itself.
-    card(page, "02", "The API", "Every sub-task, exposed as an endpoint",
-         settle=2.0,
-         then=lambda: page.goto(f"{API}/docs", wait_until="commit",
-                                timeout=120_000))
-    beat(page, 9, "title + endpoint list")
-    scroll(page, 900)
-    beat(page, 7, "CV and NLP endpoint groups")
-    scroll(page, 900)
-    beat(page, 7, "orchestration + LLMOps groups")
-    scroll(page, -1800, steps=4, pause=0.3)
-    beat(page, 3)
+    section_swagger(page, "02", jd_text=jd_text)
 
     # 2 -- model registry ---------------------------------------------------
     print("  [2/12] Model registry")
@@ -409,15 +524,14 @@ def demo(page, jd_text: str) -> None:
 
     # 12 -- LLMOps ------------------------------------------------------------
     print("  [12/12] LLMOps")
-    card(page, "13", "Watching it in production",
-         "Seven metrics, measured not asserted",
-         then=lambda: click_tab(page, 6))
-    run_button(page, "Refresh /metrics", budget=90)
-    beat(page, 14, "M1-M6 live from the request log")
-    scroll(page, 700, steps=5)
-    beat(page, 14, "latency, reliability, tokens, cost, confidence")
-    scroll(page, 700, steps=5)
-    beat(page, 10)
+    section_llmops(page, "13", then=lambda: click_tab(page, 6))
+
+
+# --only <name> -> (setup that runs before the clock and gets trimmed, body).
+CLIPS = {
+    "swagger": (prepare_swagger, clip_swagger),
+    "llmops": (prepare_llmops, clip_llmops),
+}
 
 
 def main() -> None:
@@ -429,9 +543,16 @@ def main() -> None:
     parser.add_argument("--headed", action="store_true",
                         help="show the browser while it records (the recording "
                              "is identical either way -- it captures the page)")
+    parser.add_argument("--only", choices=sorted(CLIPS),
+                        help="record one section on its own instead of the "
+                             "whole walkthrough; defaults --out to match")
     args = parser.parse_args()
     SCALE = args.scale
+
+    prepare, body = CLIPS[args.only] if args.only else (None, demo)
     out = Path(args.out)
+    if args.only and args.out == parser.get_default("out"):
+        out = ROOT / "docs" / f"demo_{args.only}.mp4"
 
     if not RESUME.exists():
         raise SystemExit(f"missing {RESUME} -- run scripts/make_sample_resume.py")
@@ -453,14 +574,20 @@ def main() -> None:
         )
         context.add_init_script(DARK_BG_JS)
         page = context.new_page()
+        capture_start = time.time()
         # Playwright's capture starts before the compositor is at full size, so
         # the opening seconds come out as a half-size frame on a grey field.
         # Record that on a blank screen and cut it off in convert(), rather than
         # spending the first title card on it.
         page.wait_for_timeout(int(WARMUP * 1000))
+        if prepare is not None:
+            prepare(page)
+        # Everything up to here gets trimmed, so the clock and the trim are
+        # measured from the same instant rather than assuming a fixed WARMUP.
         globals()["_started"] = started = time.time()
+        trim = started - capture_start
         try:
-            demo(page, jd_text)
+            body(page, jd_text)
         finally:
             elapsed = time.time() - started
             # close() flushes and finalizes the .webm; without it the file is
@@ -472,7 +599,7 @@ def main() -> None:
     if not videos:
         raise SystemExit(f"playwright wrote no video into {staging}")
     print(f"\n  converting {videos[0].name} -> mp4")
-    convert(videos[0], out, trim=WARMUP)
+    convert(videos[0], out, trim=trim)
     shutil.rmtree(staging, ignore_errors=True)
 
     # Cue sheet for whoever writes the voice-over: where each card lands.

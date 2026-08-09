@@ -41,5 +41,10 @@ REPORT.docx
 # Rebuild it locally with scripts/add_title_card.py.
 docs/demo_titled.mp4
 
+# The --only clips carry no title cards, so their cue sheets are a single
+# "(end)" line. The full walkthrough's docs/demo_timeline.txt is kept.
+docs/demo_swagger_timeline.txt
+docs/demo_llmops_timeline.txt
+
 # Word lock files
 ~$*
