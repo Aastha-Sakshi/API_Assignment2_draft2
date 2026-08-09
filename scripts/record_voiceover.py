@@ -45,16 +45,53 @@ def duration(video: Path) -> float:
     return float(out)
 
 
-def cues(video: Path, total: float) -> list[tuple[float, str]]:
-    """(seconds, label) pairs to print while recording."""
-    timeline = video.with_name(video.stem + "_timeline.txt")
+_ASCII = str.maketrans({"—": " - ", "–": "-", "’": "'", "‘": "'",
+                        "“": '"', "”": '"', "…": "..."})
+
+
+def speakable(text: str) -> str:
+    """Text the console can actually print.
+
+    The Windows console is cp1252 by default, so an em dash in a line you are
+    about to read aloud arrives as a replacement box. Fold to ASCII only when
+    the terminal cannot take the real thing.
+    """
+    try:
+        text.encode(sys.stdout.encoding or "ascii")
+        return text
+    except UnicodeEncodeError:
+        return text.translate(_ASCII).encode("ascii", "ignore").decode()
+
+
+def read_marks(path: Path) -> list[tuple[float, str]]:
+    """Parse `M:SS  text` lines, ignoring blanks and # comments."""
     found = []
-    if timeline.exists():
-        for line in timeline.read_text(encoding="utf-8").splitlines():
-            match = re.match(r"(\d+):(\d\d)\s+(.*)", line.strip())
-            if match:
-                seconds = int(match.group(1)) * 60 + int(match.group(2))
-                found.append((float(seconds), match.group(3)))
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = re.match(r"(\d+):(\d\d)\s+(.*)", line)
+        if match:
+            seconds = int(match.group(1)) * 60 + int(match.group(2))
+            found.append((float(seconds), match.group(3)))
+    return found
+
+
+def cues(video: Path, total: float) -> list[tuple[float, str]]:
+    """(seconds, text) pairs to print while recording.
+
+    Preference order: the words to actually speak, then the recorder's section
+    cue sheet, then a bare clock. A written line beats a section title, because
+    at 0:41 you want to read something, not be told where you are.
+    """
+    lines = video.with_name(video.stem + "_lines.txt")
+    if lines.exists():
+        found = read_marks(lines)
+        if found:
+            return sorted(found)
+
+    timeline = video.with_name(video.stem + "_timeline.txt")
+    found = read_marks(timeline) if timeline.exists() else []
     # A clip with no title cards has a timeline holding only "(end)". That is
     # not enough to keep your place by, so fall back to a plain clock.
     if len([c for c in found if "(end)" not in c[1]]) < 2:
@@ -86,7 +123,8 @@ def record(device: str, seconds: float, wav: Path, marks) -> None:
         while pending and pending[0][0] <= elapsed:
             at, label = pending.pop(0)
             stamp = f"{int(at) // 60}:{int(at) % 60:02d}"
-            print(f"  {stamp}  {label}" if label else f"  {stamp}", flush=True)
+            print(f"  {stamp}  {speakable(label)}" if label else f"  {stamp}",
+                  flush=True)
         time.sleep(0.05)
 
     print(f"\n  done ({seconds:.0f}s) -- finishing the file", flush=True)
@@ -115,6 +153,9 @@ def main() -> None:
     parser.add_argument("--device", help="microphone name; --list to see them")
     parser.add_argument("--audio", help="mux an existing .wav instead of recording")
     parser.add_argument("--list", action="store_true", help="list microphones and exit")
+    parser.add_argument("--script", action="store_true",
+                        help="print the lines with their timings and exit "
+                             "(rehearse without recording)")
     args = parser.parse_args()
 
     if args.list:
@@ -127,6 +168,12 @@ def main() -> None:
         raise SystemExit(f"missing {video}")
     out = Path(args.out) if args.out else video.with_name(video.stem + "_vo.mp4")
     total = duration(video)
+
+    if args.script:
+        print(f"\n  {video.name} runs {int(total) // 60}:{int(total) % 60:02d}\n")
+        for at, text in cues(video, total):
+            print(f"  {int(at) // 60}:{int(at) % 60:02d}  {speakable(text)}")
+        return
 
     if args.audio:
         wav = Path(args.audio)
@@ -143,8 +190,12 @@ def main() -> None:
 
         print(f"\n  {video.name} runs {int(total) // 60}:{int(total) % 60:02d}")
         print(f"  recording from: {device}")
-        print("  cues print as they arrive -- read to them, not to the video\n")
-        record(device, total, wav, cues(video, total))
+        marks = cues(video, total)
+        source = video.with_name(video.stem + "_lines.txt")
+        print(f"  script: {source.name}" if source.exists()
+              else "  no lines file -- printing a bare clock")
+        print("  read each line as it appears; the clock is the video's\n")
+        record(device, total, wav, marks)
 
     mux(video, wav, out)
     print(f"\nwrote {out}  ({out.stat().st_size / 1e6:.1f} MB)")

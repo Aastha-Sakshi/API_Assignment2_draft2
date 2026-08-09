@@ -1,0 +1,17 @@
+# Voice-over lines for docs/demo_llmops.mp4 (0:44).
+# Printed by scripts/record_voiceover.py as each moment arrives.
+# Format: M:SS  two spaces  the line to speak. Lines starting with # are notes.
+#
+# One thing not to say: don't call any of these numbers good or bad. They are
+# measurements from this machine's traffic, not a benchmark.
+
+0:00  Anything running for real needs watching, so the service measures itself.
+0:04  These are the headline numbers, from real traffic - a hundred and eight requests so far.
+0:09  Ninety-eight per cent of them succeeded, and it's used about twenty-eight thousand tokens.
+0:14  This first chart is latency, broken down by endpoint.
+0:18  You can see which parts of the system are slow - the ones calling the large language model.
+0:22  And this is how often each endpoint actually gets used.
+0:27  The last one is different, and it's the honest part.
+0:31  Quality can't be measured from live traffic, because you'd need to already know the right answers.
+0:37  So that one runs offline, against a labelled test set.
+0:41  That's my model against the large one - and the gap between them was small enough to be chance.

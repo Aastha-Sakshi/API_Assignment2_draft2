@@ -1,0 +1,22 @@
+# Voice-over lines for docs/demo_swagger.mp4 (1:03).
+# Printed by scripts/record_voiceover.py as each moment arrives.
+# Format: M:SS  two spaces  the line to speak. Lines starting with # are notes.
+#
+# Timings are set against the recorded video, so if you re-record the clip,
+# check they still land.
+
+0:00  This is the API behind my recruitment assistant. Every AI sub-task is its own endpoint.
+0:04  FastAPI generates this page from the code itself, so it can't drift out of date.
+0:09  They're grouped by the kind of AI doing the work.
+0:12  The first two are Computer Vision. They treat the CV as an image.
+0:16  The rest are language tasks. They read the text.
+0:21  This one runs the entire chain in a single call.
+0:24  And these are the schemas - every request and response is typed.
+0:27  But a list of endpoint names only shows the API was documented.
+0:31  So let's actually run one. This is fit classification, using the model I trained.
+0:36  I click Try it out, and the request body becomes editable.
+0:41  I'll drop in a real CV and a real job description.
+0:46  And execute it.
+0:49  That's a live response from the model. Good Fit, with a score for each of the three labels.
+0:55  It tells you which model answered, and how long it took - under a third of a second.
+0:59  Everything you saw in the app is going through exactly this.
