@@ -48,3 +48,7 @@ docs/demo_llmops_timeline.txt
 
 # Word lock files
 ~$*
+
+# Voice-over takes and their output (local only -- your own voice).
+docs/*_vo.mp4
+docs/*_vo.wav
